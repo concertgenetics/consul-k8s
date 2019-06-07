@@ -55,7 +55,10 @@ func (h *Handler) containerSidecar(pod *corev1.Pod) (corev1.Container, error) {
 }
 
 const sidecarPreStopCommandTpl = `
-export CONSUL_HTTP_ADDR="${HOST_IP}:8500"
+export CONSUL_HTTP_ADDR="https://${HOST_IP}:8500"
+export CONSUL_CACERT="/consul/connect-inject/consul_cacert.pem"
+export CONSUL_TLS_SERVER_NAME=client.dc1.consul
+
 /consul/connect-inject/consul services deregister \
   {{- if . }}
   -token-file="/consul/connect-inject/acl-token" \

@@ -143,8 +143,35 @@ func (h *Handler) containerInit(pod *corev1.Pod) (corev1.Container, error) {
 // initContainerCommandTpl is the template for the command executed by
 // the init container.
 const initContainerCommandTpl = `
-export CONSUL_HTTP_ADDR="${HOST_IP}:8500"
-export CONSUL_GRPC_ADDR="${HOST_IP}:8502"
+export CONSUL_HTTP_ADDR="https://${HOST_IP}:8500"
+export CONSUL_GRPC_ADDR="https://${HOST_IP}:8502"
+export CONSUL_CACERT="/consul/connect-inject/consul_cacert.pem"
+export CONSUL_TLS_SERVER_NAME=client.dc1.consul
+
+# Quick and dirty cert creation
+cat <<EOF >/consul/connect-inject/consul_cacert.pem
+-----BEGIN CERTIFICATE-----
+MIIDbjCCAxSgAwIBAgIRAKzTTbp38q5i2SAsNpQb/8MwCgYIKoZIzj0EAwIwgbkx
+CzAJBgNVBAYTAlVTMQswCQYDVQQIEwJDQTEWMBQGA1UEBxMNU2FuIEZyYW5jaXNj
+bzEaMBgGA1UECRMRMTAxIFNlY29uZCBTdHJlZXQxDjAMBgNVBBETBTk0MTA1MRcw
+FQYDVQQKEw5IYXNoaUNvcnAgSW5jLjFAMD4GA1UEAxM3Q29uc3VsIEFnZW50IENB
+IDIyOTcyNDM2NjQzMTI1NjE4NzMzMzE0NTQ4MTEyOTk0OTM5NjkzMTAeFw0xOTA2
+MDYyMTI4MTJaFw0yNDA2MDQyMTI4MTJaMIG5MQswCQYDVQQGEwJVUzELMAkGA1UE
+CBMCQ0ExFjAUBgNVBAcTDVNhbiBGcmFuY2lzY28xGjAYBgNVBAkTETEwMSBTZWNv
+bmQgU3RyZWV0MQ4wDAYDVQQREwU5NDEwNTEXMBUGA1UEChMOSGFzaGlDb3JwIElu
+Yy4xQDA+BgNVBAMTN0NvbnN1bCBBZ2VudCBDQSAyMjk3MjQzNjY0MzEyNTYxODcz
+MzMxNDU0ODExMjk5NDkzOTY5MzEwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAST
+cGBvU7AWEis08cELVYEOatzc+SCgKPaJOS3JycTRjMUydJv61K8g9gyx3qhL0iek
+dZwzarBKX3PwkAMpgj+ro4H6MIH3MA4GA1UdDwEB/wQEAwIBhjAPBgNVHRMBAf8E
+BTADAQH/MGgGA1UdDgRhBF81OTo1YjpmNTo4YzplZDo4OTozZTo0YTpiMTo4NDpk
+Njo3MDoxNToxYTo4NDpmMzo1NzpjMzo1MjoyZjplODo3NTo3ZDo3ZTpmOTo3ODo3
+ZToxNjoyOToxMTo2Mzo2ZTBqBgNVHSMEYzBhgF81OTo1YjpmNTo4YzplZDo4OToz
+ZTo0YTpiMTo4NDpkNjo3MDoxNToxYTo4NDpmMzo1NzpjMzo1MjoyZjplODo3NTo3
+ZDo3ZTpmOTo3ODo3ZToxNjoyOToxMTo2Mzo2ZTAKBggqhkjOPQQDAgNIADBFAiEA
+zwpWUBilUjyZ8LiwW3DuP7l8dWTMPPwdPoJ08Zpl+NACIDLy/NrL1pI714jqbAxb
+BbAhJqk2TTvVzABfPlQQTdGB
+-----END CERTIFICATE-----
+EOF
 
 # Register the service. The HCL is stored in the volume so that
 # the preStop hook can access it to deregister the service.
