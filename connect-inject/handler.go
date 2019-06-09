@@ -92,6 +92,15 @@ type Handler struct {
 	// registrations. It will be overridden by a specific annotation.
 	DefaultProtocol string
 
+	// Various options for communicating with Consul over HTTP/GRPC. If TLS
+	// is enabled in your cluster, then you will most likely need to also
+	// inject a CA and configure the client.
+	ConsulCASecretName	string
+	ConsulCACert        string
+	ConsulTLSServerName string
+	ConsulHTTPSSL       bool
+	ConsulGRPCSSL       bool
+
 	// Log
 	Log hclog.Logger
 }
@@ -195,9 +204,15 @@ func (h *Handler) Mutate(req *v1beta1.AdmissionRequest) *v1beta1.AdmissionRespon
 
 	// Add our volume that will be shared by the init container and
 	// the sidecar for passing data in the pod.
+	var volumes = []corev1.Volume{h.containerVolume()}
+
+	if h.ConsulCASecretName != "" {
+		volumes = append(volumes, h.containerVolumeCA())
+	}
+
 	patches = append(patches, addVolume(
 		pod.Spec.Volumes,
-		[]corev1.Volume{h.containerVolume()},
+		volumes,
 		"/spec/volumes")...)
 
 	// Add the upstream services as environment variables for easy

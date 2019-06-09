@@ -36,6 +36,11 @@ type Command struct {
 	flagACLAuthMethod   string // Auth Method to use for ACLs, if enabled
 	flagCentralConfig   bool   // True to enable central config injection
 	flagDefaultProtocol string // Default protocol for use with central config
+	flagCASecretName	string // Secret name for Consul CA
+	flagCACert			string // Consul CA for auth
+	flagTLSServerName	string // SNI hostname for Consul auth
+	flagConsulHTTPSSL	bool   // Enable TLS for Consul http
+	flagConsulGRPCSSL	bool   // Enable TLS for Consul grpc
 	flagSet             *flag.FlagSet
 
 	once sync.Once
@@ -64,6 +69,16 @@ func (c *Command) init() {
 	c.flagSet.BoolVar(&c.flagCentralConfig, "enable-central-config", false, "Enable central config.")
 	c.flagSet.StringVar(&c.flagDefaultProtocol, "default-protocol", "",
 		"The default protocol to use in central config registrations.")
+	c.flagSet.StringVar(&c.flagCASecretName, "consul-cacert-secret", "",
+		"Kubernetes secret name for the CA certificate to use for Consul communication.")
+	c.flagSet.StringVar(&c.flagCACert, "consul-cacert", "",
+		"CA certificate name to use for Consul communication.")
+	c.flagSet.StringVar(&c.flagTLSServerName, "consul-tls-server-name", "",
+		"SNI hostname to use for Consul communication over TLS.")
+	c.flagSet.BoolVar(&c.flagConsulHTTPSSL, "consul-http-ssl", false,
+		"Whether or not to enable TLS for Consul communication over HTTP.")
+	c.flagSet.BoolVar(&c.flagConsulGRPCSSL, "consul-grpc-ssl", false,
+		"Whether or not to enable TLS for Consul communication over GRPC.")
 	c.help = flags.Usage(help, c.flagSet)
 }
 
@@ -109,13 +124,18 @@ func (c *Command) Run(args []string) int {
 
 	// Build the HTTP handler and server
 	injector := connectinject.Handler{
-		ImageConsul:       c.flagConsulImage,
-		ImageEnvoy:        c.flagEnvoyImage,
-		RequireAnnotation: !c.flagDefaultInject,
-		AuthMethod:        c.flagACLAuthMethod,
-		CentralConfig:     c.flagCentralConfig,
-		DefaultProtocol:   c.flagDefaultProtocol,
-		Log:               hclog.Default().Named("handler"),
+		ImageConsul:         c.flagConsulImage,
+		ImageEnvoy:          c.flagEnvoyImage,
+		RequireAnnotation:   !c.flagDefaultInject,
+		AuthMethod:          c.flagACLAuthMethod,
+		CentralConfig:       c.flagCentralConfig,
+		DefaultProtocol:     c.flagDefaultProtocol,
+		ConsulCASecretName:	 c.flagCASecretName,
+		ConsulCACert:        c.flagCACert,
+		ConsulTLSServerName: c.flagTLSServerName,
+		ConsulHTTPSSL:       c.flagConsulHTTPSSL,
+		ConsulGRPCSSL:       c.flagConsulGRPCSSL,
+		Log:                 hclog.Default().Named("handler"),
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/mutate", injector.Handle)

@@ -15,6 +15,8 @@ type initContainerCommandData struct {
 	AuthMethod      string
 	CentralConfig   bool
 	Upstreams       []initContainerCommandUpstreamData
+	HttpTLS			bool
+	GrpcTLS			bool
 }
 
 type initContainerCommandUpstreamData struct {
@@ -32,6 +34,8 @@ func (h *Handler) containerInit(pod *corev1.Pod) (corev1.Container, error) {
 		ServiceProtocol: pod.Annotations[annotationProtocol],
 		AuthMethod:      h.AuthMethod,
 		CentralConfig:   h.CentralConfig,
+		HttpTLS:		 h.ConsulHTTPSSL,
+		GrpcTLS:		 h.ConsulGRPCSSL,
 	}
 	if data.ServiceName == "" {
 		// Assertion, since we call defaultAnnotations above and do
@@ -86,6 +90,34 @@ func (h *Handler) containerInit(pod *corev1.Pod) (corev1.Container, error) {
 		},
 	}
 
+	// Create expected env vars
+	env := []corev1.EnvVar{
+		{
+			Name: "HOST_IP",
+			ValueFrom: &corev1.EnvVarSource{
+				FieldRef: &corev1.ObjectFieldSelector{FieldPath: "status.hostIP"},
+			},
+		},
+		{
+			Name: "POD_IP",
+			ValueFrom: &corev1.EnvVarSource{
+				FieldRef: &corev1.ObjectFieldSelector{FieldPath: "status.podIP"},
+			},
+		},
+		{
+			Name: "POD_NAME",
+			ValueFrom: &corev1.EnvVarSource{
+				FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.name"},
+			},
+		},
+		{
+			Name: "POD_NAMESPACE",
+			ValueFrom: &corev1.EnvVarSource{
+				FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.namespace"},
+			},
+		},
+	}
+
 	if h.AuthMethod != "" {
 		// Extract the service account token's volume mount
 		saTokenVolumeMount, err := findServiceAccountVolumeMount(pod)
@@ -95,6 +127,27 @@ func (h *Handler) containerInit(pod *corev1.Pod) (corev1.Container, error) {
 
 		// Append to volume mounts
 		volMounts = append(volMounts, saTokenVolumeMount)
+	}
+
+	if h.ConsulTLSServerName != "" {
+		env = append(env, corev1.EnvVar{
+			Name:  "CONSUL_TLS_SERVER_NAME",
+			Value: h.ConsulTLSServerName,
+		})
+	}
+
+	if h.ConsulCACert != "" {
+		env = append(env, corev1.EnvVar{
+			Name:  "CONSUL_CACERT",
+			Value: "/consul/consul-tls-ca/" + h.ConsulCACert,
+		})
+	}
+
+	if h.ConsulCASecretName != "" {
+		volMounts = append(volMounts, corev1.VolumeMount{
+			Name:      volumeNameCA,
+			MountPath: "/consul/consul-tls-ca",
+		})
 	}
 
 	// Render the command
@@ -109,32 +162,7 @@ func (h *Handler) containerInit(pod *corev1.Pod) (corev1.Container, error) {
 	return corev1.Container{
 		Name:  "consul-connect-inject-init",
 		Image: h.ImageConsul,
-		Env: []corev1.EnvVar{
-			{
-				Name: "HOST_IP",
-				ValueFrom: &corev1.EnvVarSource{
-					FieldRef: &corev1.ObjectFieldSelector{FieldPath: "status.hostIP"},
-				},
-			},
-			{
-				Name: "POD_IP",
-				ValueFrom: &corev1.EnvVarSource{
-					FieldRef: &corev1.ObjectFieldSelector{FieldPath: "status.podIP"},
-				},
-			},
-			{
-				Name: "POD_NAME",
-				ValueFrom: &corev1.EnvVarSource{
-					FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.name"},
-				},
-			},
-			{
-				Name: "POD_NAMESPACE",
-				ValueFrom: &corev1.EnvVarSource{
-					FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.namespace"},
-				},
-			},
-		},
+		Env: env,
 		VolumeMounts: volMounts,
 		Command:      []string{"/bin/sh", "-ec", buf.String()},
 	}, nil
@@ -143,35 +171,17 @@ func (h *Handler) containerInit(pod *corev1.Pod) (corev1.Container, error) {
 // initContainerCommandTpl is the template for the command executed by
 // the init container.
 const initContainerCommandTpl = `
-export CONSUL_HTTP_ADDR="https://${HOST_IP}:8500"
-export CONSUL_GRPC_ADDR="https://${HOST_IP}:8502"
-export CONSUL_CACERT="/consul/connect-inject/consul_cacert.pem"
-export CONSUL_TLS_SERVER_NAME=client.dc1.consul
+# For some reason the CONSUL_HTTP_SSL variable is not being picked up 
+# by envoy boostrap command
+export CONSUL_HTTP_ADDR="{{ if .HttpTLS -}}https://{{ end -}}${HOST_IP}:8500"
+export CONSUL_GRPC_ADDR="{{ if .GrpcTLS -}}https://{{ end -}}${HOST_IP}:8502"
 
-# Quick and dirty cert creation
-cat <<EOF >/consul/connect-inject/consul_cacert.pem
------BEGIN CERTIFICATE-----
-MIIDbjCCAxSgAwIBAgIRAKzTTbp38q5i2SAsNpQb/8MwCgYIKoZIzj0EAwIwgbkx
-CzAJBgNVBAYTAlVTMQswCQYDVQQIEwJDQTEWMBQGA1UEBxMNU2FuIEZyYW5jaXNj
-bzEaMBgGA1UECRMRMTAxIFNlY29uZCBTdHJlZXQxDjAMBgNVBBETBTk0MTA1MRcw
-FQYDVQQKEw5IYXNoaUNvcnAgSW5jLjFAMD4GA1UEAxM3Q29uc3VsIEFnZW50IENB
-IDIyOTcyNDM2NjQzMTI1NjE4NzMzMzE0NTQ4MTEyOTk0OTM5NjkzMTAeFw0xOTA2
-MDYyMTI4MTJaFw0yNDA2MDQyMTI4MTJaMIG5MQswCQYDVQQGEwJVUzELMAkGA1UE
-CBMCQ0ExFjAUBgNVBAcTDVNhbiBGcmFuY2lzY28xGjAYBgNVBAkTETEwMSBTZWNv
-bmQgU3RyZWV0MQ4wDAYDVQQREwU5NDEwNTEXMBUGA1UEChMOSGFzaGlDb3JwIElu
-Yy4xQDA+BgNVBAMTN0NvbnN1bCBBZ2VudCBDQSAyMjk3MjQzNjY0MzEyNTYxODcz
-MzMxNDU0ODExMjk5NDkzOTY5MzEwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAST
-cGBvU7AWEis08cELVYEOatzc+SCgKPaJOS3JycTRjMUydJv61K8g9gyx3qhL0iek
-dZwzarBKX3PwkAMpgj+ro4H6MIH3MA4GA1UdDwEB/wQEAwIBhjAPBgNVHRMBAf8E
-BTADAQH/MGgGA1UdDgRhBF81OTo1YjpmNTo4YzplZDo4OTozZTo0YTpiMTo4NDpk
-Njo3MDoxNToxYTo4NDpmMzo1NzpjMzo1MjoyZjplODo3NTo3ZDo3ZTpmOTo3ODo3
-ZToxNjoyOToxMTo2Mzo2ZTBqBgNVHSMEYzBhgF81OTo1YjpmNTo4YzplZDo4OToz
-ZTo0YTpiMTo4NDpkNjo3MDoxNToxYTo4NDpmMzo1NzpjMzo1MjoyZjplODo3NTo3
-ZDo3ZTpmOTo3ODo3ZToxNjoyOToxMTo2Mzo2ZTAKBggqhkjOPQQDAgNIADBFAiEA
-zwpWUBilUjyZ8LiwW3DuP7l8dWTMPPwdPoJ08Zpl+NACIDLy/NrL1pI714jqbAxb
-BbAhJqk2TTvVzABfPlQQTdGB
------END CERTIFICATE-----
-EOF
+# Copy the CA cert to the volume and update if it exists
+if [ ! -z "$CONSUL_CACERT" ] 
+then
+	cp $CONSUL_CACERT /consul/connect-inject/consul_cacert.pem
+	export CONSUL_CACERT=/consul/connect-inject/consul_cacert.pem
+fi
 
 # Register the service. The HCL is stored in the volume so that
 # the preStop hook can access it to deregister the service.

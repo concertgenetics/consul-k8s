@@ -19,17 +19,40 @@ func (h *Handler) containerSidecar(pod *corev1.Pod) (corev1.Container, error) {
 		return corev1.Container{}, err
 	}
 
+	env := []corev1.EnvVar{
+		{
+			Name: "HOST_IP",
+			ValueFrom: &corev1.EnvVarSource{
+				FieldRef: &corev1.ObjectFieldSelector{FieldPath: "status.hostIP"},
+			},
+		},
+	}
+
+	if h.ConsulTLSServerName != "" {
+		env = append(env, corev1.EnvVar{
+			Name:  "CONSUL_TLS_SERVER_NAME",
+			Value: h.ConsulTLSServerName,
+		})
+	}
+
+	if h.ConsulCACert != "" {
+		env = append(env, corev1.EnvVar{
+			Name:  "CONSUL_CACERT",
+			Value: "/consul/connect-inject/consul_cacert.pem",
+		})
+	}
+
+	if h.ConsulHTTPSSL {
+		env = append(env, corev1.EnvVar{
+			Name:  "CONSUL_HTTP_SSL",
+			Value: "true",
+		})
+	}
+
 	return corev1.Container{
 		Name:  "consul-connect-envoy-sidecar",
 		Image: h.ImageEnvoy,
-		Env: []corev1.EnvVar{
-			{
-				Name: "HOST_IP",
-				ValueFrom: &corev1.EnvVarSource{
-					FieldRef: &corev1.ObjectFieldSelector{FieldPath: "status.hostIP"},
-				},
-			},
-		},
+		Env: env,
 		VolumeMounts: []corev1.VolumeMount{
 			corev1.VolumeMount{
 				Name:      volumeName,
@@ -55,9 +78,7 @@ func (h *Handler) containerSidecar(pod *corev1.Pod) (corev1.Container, error) {
 }
 
 const sidecarPreStopCommandTpl = `
-export CONSUL_HTTP_ADDR="https://${HOST_IP}:8500"
-export CONSUL_CACERT="/consul/connect-inject/consul_cacert.pem"
-export CONSUL_TLS_SERVER_NAME=client.dc1.consul
+export CONSUL_HTTP_ADDR="${HOST_IP}:8500"
 
 /consul/connect-inject/consul services deregister \
   {{- if . }}
