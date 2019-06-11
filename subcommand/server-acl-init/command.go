@@ -127,12 +127,10 @@ func (c *Command) Run(args []string) int {
 	}
 
 	// Pick the first pod to connect to for bootstrapping & set up connection
-	consulConfig := api.Config{
-		Address: podAddresses[0],
-		Scheme:  "http",
-	}
+	consulConfig := api.DefaultConfig()
+	consulConfig.Address = podAddresses[0]
 
-	consulClient, err := api.NewClient(&consulConfig)
+	consulClient, err := api.NewClient(consulConfig)
 	if err != nil {
 		c.UI.Error(fmt.Sprintf("Error connecting to Consul agent: %s", err))
 		return 1
@@ -200,13 +198,11 @@ service_prefix "" {
 	// Pass out agent tokens and restart the servers
 	for i := 0; i < len(podAddresses); i++ {
 		// Connect to other pods
-		consulConfig := api.Config{
-			Address: podAddresses[i],
-			Scheme:  "http",
-			Token:   bootstrapToken.SecretID,
-		}
+		consulConfig := api.DefaultConfig()
+		consulConfig.Address = podAddresses[i]
+		consulConfig.Token = bootstrapToken.SecretID
 
-		consulClient, err = api.NewClient(&consulConfig)
+		consulClient, err = api.NewClient(consulConfig)
 		if err != nil {
 			c.UI.Error(fmt.Sprintf("Error connecting to Consul agent %v: %s", i, err))
 			return 1
